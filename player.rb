@@ -1,14 +1,12 @@
 class Player
-  attr_reader :color, :king_color, :king_row
+  attr_reader :name, :color, :king_color, :home_row
 
-  def initialize color, king_color, king_row
-    @color = color
-    @king_color = king_color
+  def initialize name:, color:, king_color:, home_row:
+    @name, @color, @king_color, @home_row = name, color, king_color, home_row
     @taken = []
-    @king_row = king_row
   end
 
-  def take piece
-    @taken.push piece
+  def king_row
+    (7 - home_row).abs
   end
 end

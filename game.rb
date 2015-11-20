@@ -1,64 +1,90 @@
-require "./board"
-require "./cell"
-require "./piece"
-require "./player"
-
-BLACK = 0
-WHITE = 3
-RED   = 5
-BLUE  = 45
-REALLY_LIGHT_WHITE = 71
-
+require "json"
 
 class Game
-  Done = Class.new StandardError
-
-  attr_reader :board
-
-  def initialize
+  def initialize template=nil
     @board = Board.new
     @players = [
-      Player.new(36, 69, 0),
-      Player.new(4, RED, 7)
+      Player.new(name: "Player 1", color: LIGHT_BLUE, king_color: BLUE, home_row: 0),
+      Player.new(name: "Player 2", color: LIGHT_RED,  king_color: RED,  home_row: 7)
     ]
     @current = 0
 
-    self.load [
-      "2 2 2 2 ",
+    template ||= [
       " 2 2 2 2",
-      "2 2 2 2 ",
+      "2 2 2 2",
+      " 2 2 2 2",
       "        ",
       "        ",
-      " 1 1 1 1",
       "1 1 1 1 ",
-      " 1 1 1 1"
+      " 1 1 1 1",
+      "1 1 1 1 "
     ]
+
+    load_template template
+    at_exit { Thread.new { board.reset } }
   end
 
-  def load grid
-    @board.each_cell { |c| c.release }
+  def load_template grid
+    board.each_cell { |c| c.release }
     grid.each_with_index do |line, row|
       line.split("").each_with_index do |val, col|
         next if val == " "
-        @board[col, row].place Piece.new @players[val.to_i - 1]
+        board[col, 7 - row].place Piece.new players[val.to_i - 1]
       end
     end
   end
 
-  def log msg
-    warn msg
+  def load json
+    json = JSON.parse json
+    board.each_cell { |c| c.release }
+    @current = json["current"]
+    json["pieces"].each do |data|
+      p = Piece.new players[data.fetch "player"]
+      p.king! if data.fetch("king")
+      board[ data.fetch("x"), data.fetch("y") ].place p
+    end
+  end
+
+  def dump
+    pieces = []
+    board.each_cell do |c|
+      if p = c.piece
+        pieces.push(
+          player: players.index(p.player),
+          king:   p.king?,
+          x:      c.x,
+          y:      c.y
+        )
+      end
+    end
+
+    {
+      current: current,
+      pieces:  pieces
+    }.to_json
   end
 
   def play
-    at_exit { board.reset }
     loop do
       draw
       moves = get_move_sequence
-      apply_all moves
+      next if moves.empty?
+
+      make_moves moves
+
+      if winner? current_player
+        display_winner current_player
+        break
+      else
+        promote_kings
+        toggle_current_player
+      end
     end
-  rescue Done
-    log "Exiting"
   end
+
+  private
+
+  attr_reader :players, :current, :board
 
   def valid? sequence
     if sequence.any? { |c| !c.playable? }
@@ -74,7 +100,6 @@ class Game
     end
 
     return true if rest.empty?
-
 
     if rest.any? { |c| c.occupied? }
       log "You cannot move through occupied spaces"
@@ -104,63 +129,9 @@ class Game
       return false
     end
 
+    # TODO: are you _required_ to take a piece if you can?
+
     return true
-  end
-
-  def promote_kings
-    @board.each_cell do |c|
-      next unless c.piece
-      c.piece.king! if c.y == c.piece.player.king_row
-    end
-  end
-
-  def apply_all moves
-    return unless moves.length > 1
-    moves.each_cons(2) { |f,t| move f,t }
-    if winner? current_player
-      @board.each_cell { |c| c.draw current_player.color if c.playable? }
-      sleep 1
-      @board.pad.scroll "Player #{@current + 1} wins!", color: current_player.color
-      sleep 1
-      raise Done
-    else
-      promote_kings
-      toggle_current_player
-    end
-  end
-
-  def winner? player
-    @board.each_cell.all? { |c| c.empty? || c.piece.player == player }
-  end
-
-  def move from, to
-    if over = jump_between(from, to)
-      raise unless over.piece && over.piece.player != current_player
-      taken = over.release
-      over.flash taken.player.color, time: 1
-      current_player.take taken
-    end
-    to.place from.release
-  end
-
-  def current_player
-    @players[@current]
-  end
-
-  def toggle_current_player
-    @current = 1 - @current
-  end
-
-  def draw
-    board.draw
-    board.side.pulse current_player.color
-  end
-
-  def jump_between from, to
-    dx = from.x - to.x
-    dy = from.y - to.y
-    return unless dx.abs == 2 && dy.abs == 2
-    board[to.x + dx/2, to.y + dy/2]
   end
 
   def can_jump? from, to
@@ -185,56 +156,81 @@ class Game
     return true
   end
 
-  def backwards? f,t
-    dy = t.y - f.y
-    if current_player == @players.first
-      dy > 0
-    else
-      dy < 0
+  def current_player
+    players[current]
+  end
+
+  def toggle_current_player
+    @current = 1 - current
+  end
+
+  def log msg
+    board.log msg
+  end
+
+  def draw
+    board.current_player = current_player
+    board.draw
+  end
+
+  def promote_kings
+    # TODO: can you promote mid-move and then turn around?
+    board.each_cell do |c|
+      next unless c.piece
+      c.piece.king! if c.y == c.piece.player.king_row
     end
+  end
+
+  def make_moves moves
+    return unless moves.length > 1
+    moves.each_cons(2) { |f,t| move f,t }
+  end
+
+  def winner? player
+    board.each_cell.all? { |c| c.empty? || c.piece.player == player }
+  end
+
+  def display_winner player
+    board.each_cell { |c| board.update c, player.color if c.playable? }
+    sleep 1
+    board.print "#{player.name} wins!", color: player.color
+    sleep 10
+  end
+
+  def move from, to
+    if over = jump_between(from, to)
+      raise unless over.piece && over.piece.player != current_player
+      board.remove over
+    end
+    to.place from.release
+  end
+
+  def jump_between from, to
+    dx = from.x - to.x
+    dy = from.y - to.y
+    return unless dx.abs == 2 && dy.abs == 2
+    board[to.x + dx/2, to.y + dy/2]
+  end
+
+  def backwards? from,to
+    (from.y <=> to.y) == (to.y <=> current_player.home_row)
   end
 
   def get_move_sequence
     moves = []
-    loop do
-      events = board.pad.in.gets
-      events.each do |data|
-        pre, key, v = data[:data]
+    board.pick_cells do |cell|
+      return [] if cell == moves.first
+      return moves if cell == moves.last
 
-        raise Done if pre == 176 && key == 8
-        next unless pre == 144 && v == 0
+      board.log "Picked #{cell}", level: 1
 
-        cell = board.key(key)
-        return [] if cell == moves.first
-        return moves if cell == moves.last
-
-        moves.push cell
-        if valid? moves
-          cell.pulse 21
-        else
-          moves.pop
-          cell.error!
-        end
+      moves.push cell
+      if valid? moves
+        board.select cell
+      else
+        board.error! cell
+        moves.pop
       end
     end
   end
-end
-
-if $PROGRAM_NAME == __FILE__
-  require "pry"
-  g = Game.new
-  #g.load [
-  #  "        ",
-  #  "   2    ",
-  #  "        ",
-  #  "   2    ",
-  #  "        ",
-  #  "     2  ",
-  #  "      1 ",
-  #  "        "
-  #]
-  #g.board[1,1].piece.king!
-  #g.board[1,7].piece.king!
-  #g.board.draw
-  g.play
 end
