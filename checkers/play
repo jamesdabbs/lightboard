@@ -1,0 +1,48 @@
+# -*- mode: ruby -*-
+require "pry"
+require "./checkers"
+
+endgame = [
+  "        ",
+  "  2     ",
+  "        ",
+  "  2     ",
+  "        ",
+  "    2   ",
+  "     1  ",
+  "        "
+]
+
+Checkers.load!
+
+def new_game
+  Checkers::Game.new #board: Checkers::TermBoard
+end
+
+g = new_game
+g.load_template #endgame
+
+loop do
+  begin
+    g.play
+
+  rescue Board::Exit, Interrupt, SystemExit
+    puts "Exiting!"
+    g.reset_board
+    exit
+
+  rescue Board::Reset
+    puts "Restting"
+    g = new_game
+    g.load_template
+    next
+
+  rescue Board::Reload
+    puts "Reloading"
+    dump = g.dump
+    Checkers.load!
+    g = Checkers::Game.new board: g.send(:board).class
+    g.load dump
+    next
+  end
+end

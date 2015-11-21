@@ -1,0 +1,55 @@
+# -*- mode: ruby -*-
+require "pry"
+require "./life"
+
+glider = [
+  "   X    ",
+  "    X   ",
+  "  XXX   ",
+  "        ",
+  "        ",
+  "        ",
+  "XXX     ",
+  "        "
+]
+template = glider
+
+def new_game
+  g = Life::Game.new #board: Checkers::TermBoard
+end
+
+def random_template
+  8.times.map do
+    8.times.map do
+      rand < 0.4 ? "X" : " "
+    end.join ""
+  end
+end
+
+g = new_game
+g.load_template template
+
+loop do
+  begin
+    g.play
+
+  rescue Board::Exit, Interrupt, SystemExit
+    puts "Exiting!"
+    g.reset_board
+    exit
+
+  rescue Board::Reset
+    puts "Restting"
+    g = new_game
+    g.load_template template
+    next
+
+  rescue Board::Reload
+    puts "Reloading"
+    dump = g.dump
+    Life.load!
+    g = new_game
+    g.load dump
+    next
+  end
+end

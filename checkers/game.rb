@@ -1,15 +1,17 @@
 require "json"
 
-class Game
-  def initialize template=nil
-    @board = Board.new
+class Checkers::Game
+  def initialize board: Checkers::Board
+    @board = board.new
     @players = [
       Player.new(name: "Player 1", color: LIGHT_BLUE, king_color: BLUE, home_row: 0),
       Player.new(name: "Player 2", color: LIGHT_RED,  king_color: RED,  home_row: 7)
     ]
     @current = 0
+  end
 
-    template ||= [
+  def load_template grid=nil
+    grid ||= [
       " 2 2 2 2",
       "2 2 2 2",
       " 2 2 2 2",
@@ -19,12 +21,6 @@ class Game
       " 1 1 1 1",
       "1 1 1 1 "
     ]
-
-    load_template template
-    at_exit { Thread.new { board.reset } }
-  end
-
-  def load_template grid
     board.each_cell { |c| c.release }
     grid.each_with_index do |line, row|
       line.split("").each_with_index do |val, col|
@@ -80,6 +76,10 @@ class Game
         toggle_current_player
       end
     end
+  end
+
+  def reset_board
+    board.reset
   end
 
   private
